@@ -59,7 +59,14 @@ async function initDB() {
     console.log('Database connected and tables created');
   } catch (error) {
     console.error('Database connection failed:', error);
-    process.exit(1);
+    // Do not exit here — allow the HTTP server to start so container healthchecks succeed.
+    // Routes will return 500 when they attempt to use the DB.
+    db = {
+      // mimic mysql2/promise connection execute method that rejects
+      execute: async () => {
+        throw new Error('DB not connected');
+      }
+    };
   }
 }
 

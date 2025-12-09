@@ -4,13 +4,13 @@ services:
   app:
     build: .
     ports:
-      - "8001:3000"
+      - "3000:3000"
     environment:
-      - DB_HOST=mysql
-      - DB_USER=root
-      - DB_PASSWORD=password
-      - DB_NAME=complaint_management_system
-      - NODE_ENV=production
+      DB_HOST: mysql
+      DB_USER: root
+      DB_PASSWORD: password
+      DB_NAME: complaint_management_system
+      NODE_ENV: production
     depends_on:
       mysql:
         condition: service_healthy
@@ -24,10 +24,11 @@ services:
     volumes:
       - mysql_data:/var/lib/mysql
     ports:
-      - "3309:3306"
+      - "3306:3306"
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
-      timeout: 20s
+      interval: 10s
+      timeout: 5s
       retries: 10
     restart: unless-stopped
 
