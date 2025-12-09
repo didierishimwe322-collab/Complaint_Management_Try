@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Notes App</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body class="bg-light">
+    <div class="container mt-5">
+        <div class="row">
+            <div class="col-md-8 mx-auto">
+                <h1 class="text-center mb-4">
+                    <i class="fas fa-sticky-note text-primary"></i> Notes App
+                </h1>
+                
+                <!-- Add Note Form -->
+                <div class="card mb-4">
+                    <div class="card-header">
+                        <h5 class="mb-0">Create New Note</h5>
+                    </div>
+                    <div class="card-body">
+                        <form id="noteForm">
+                            <div class="mb-3">
+                                <input type="text" class="form-control" id="noteTitle" placeholder="Note Title" required>
+                            </div>
+                            <div class="mb-3">
+                                <textarea class="form-control" id="noteContent" rows="4" placeholder="Note Content" required></textarea>
+                            </div>
+                            <button type="submit" class="btn btn-primary">
+                                <i class="fas fa-plus"></i> Add Note
+                            </button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Notes List -->
+                <div id="notesList">
+                    <!-- Notes will be loaded here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let editingNoteId = null;
+
+        // Load notes on page load
+        document.addEventListener('DOMContentLoaded', loadNotes);
+
+        // Form submission
+        document.getElementById('noteForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const title = document.getElementById('noteTitle').value;
+            const content = document.getElementById('noteContent').value;
+            
+            if (editingNoteId) {
+                await updateNote(editingNoteId, title, content);
+            } else {
+                await createNote(title, content);
+            }
+            
+            resetForm();
+            loadNotes();
+        });
+
+        async function loadNotes() {
+            try {
+                const response = await fetch('/api/notes');
+                const notes = await response.json();
+                displayNotes(notes);
+            } catch (error) {
+                console.error('Error loading notes:', error);
+            }
+        }
+
+        function displayNotes(notes) {
+            const notesList = document.getElementById('notesList');
+            
+            if (notes.length === 0) {
+                notesList.innerHTML = '<div class="text-center text-muted">No notes yet. Create your first note!</div>';
+                return;
+            }
+            
+            notesList.innerHTML = notes.map(note => `
+                <div class="card mb-3">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0">${note.title}</h5>
+                        <div>
+                            <button class="btn btn-sm btn-outline-primary" onclick="editNote(${note.id}, '${note.title.replace(/'/g, "\\'")}', '${note.content.replace(/'/g, "\\'").replace(/\n/g, '\\n')}')">
+                                <i class="fas fa-edit"></i>
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger" onclick="deleteNote(${note.id})">
+                                <i class="fas fa-trash"></i>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="card-body">
+                        <p class="card-text">${note.content.replace(/\n/g, '<br>')}</p>
+                        <small class="text-muted">Created: ${new Date(note.created_at).toLocaleString()}</small>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        async function createNote(title, content) {
+            try {
+                const response = await fetch('/api/notes', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ title, content }),
+                });
+                
+                if (response.ok) {
+                    showAlert('Note created successfully!', 'success');
+                }
+            } catch (error) {
+                showAlert('Error creating note', 'danger');
+                console.error('Error creating note:', error);
+            }
+        }
+
+        async function updateNote(id, title, content) {
+            try {
+                const response = await fetch(`/api/notes/${id}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ title, content }),
+                });
+                
+                if (response.ok) {
+                    showAlert('Note updated successfully!', 'success');
+                }
+            } catch (error) {
+                showAlert('Error updating note', 'danger');
+                console.error('Error updating note:', error);
+            }
+        }
+
+        async function deleteNote(id) {
+            if (confirm('Are you sure you want to delete this note?')) {
+                try {
+                    const response = await fetch(`/api/notes/${id}`, {
+                        method: 'DELETE',
+                    });
+                    
+                    if (response.ok) {
+                        showAlert('Note deleted successfully!', 'success');
+                        loadNotes();
+                    }
+                } catch (error) {
+                    showAlert('Error deleting note', 'danger');
+                    console.error('Error deleting note:', error);
+                }
+            }
+        }
+
+        function editNote(id, title, content) {
+            document.getElementById('noteTitle').value = title;
+            document.getElementById('noteContent').value = content;
+            editingNoteId = id;
+            
+            // Change button text
+            document.querySelector('#noteForm button').innerHTML = '<i class="fas fa-save"></i> Update Note';
+        }
+
+        function resetForm() {
+            document.getElementById('noteForm').reset();
+            editingNoteId = null;
+            document.querySelector('#noteForm button').innerHTML = '<i class="fas fa-plus"></i> Add Note';
+        }
+
+        function showAlert(message, type) {
+            const alertDiv = document.createElement('div');
+            alertDiv.className = `alert alert-${type} alert-dismissible fade show`;
+            alertDiv.innerHTML = `
+                ${message}
+                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            `;
+            
+            document.querySelector('.container').insertBefore(alertDiv, document.querySelector('.row'));
+            
+            setTimeout(() => {
+                alertDiv.remove();
+            }, 5000);
+        }
+    </script>
+</body>
+</html>

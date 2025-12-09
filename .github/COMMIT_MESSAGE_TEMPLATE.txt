@@ -1,0 +1,55 @@
+# <type>(<scope>): <subject>
+#
+# <body>
+#
+# <footer>
+#
+# --- COMMIT MESSAGE GUIDELINES ---
+#
+# Type: Must be one of the following:
+#   * feat:     A new feature
+#   * fix:      A bug fix
+#   * docs:     Documentation only changes
+#   * style:    Changes that do not affect the meaning of the code (formatting, semicolons, etc.)
+#   * refactor: A code change that neither fixes a bug nor adds a feature
+#   * perf:     A code change that improves performance
+#   * test:     Adding or updating tests
+#   * chore:    Changes to build process, dependencies, or tooling
+#   * ci:       Changes to CI configuration
+#
+# Scope: Optional - specify what part of the codebase is affected
+#   Examples: api, auth, database, ui, config, etc.
+#
+# Subject:
+#   * Use imperative mood ("add" not "added" or "adds")
+#   * Do not capitalize the first letter
+#   * Do not use a period (.) at the end
+#   * Limit to 50 characters
+#   * Reference issues and breaking changes
+#
+# Body:
+#   * Optional - explain what and why, not how
+#   * Wrap at 72 characters
+#   * Separate from subject with a blank line
+#   * Use bullet points for multiple changes
+#
+# Footer:
+#   * Optional - reference issue tracker
+#   * Format: "Closes #123" or "Fixes #456"
+#
+# Example 1:
+# feat(api): add complaint filtering by status
+#
+# Implement filtering functionality to allow users to view complaints
+# by their current status (open, in_progress, resolved, closed).
+# This improves user experience by reducing noise in complaint lists.
+#
+# Closes #42
+#
+# Example 2:
+# fix(database): resolve connection timeout on slow networks
+#
+# Increase connection timeout from 5s to 20s to accommodate users
+# on slower networks. Implements exponential backoff for retries.
+#
+# Fixes #89

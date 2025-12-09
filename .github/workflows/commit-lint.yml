@@ -1,0 +1,45 @@
+name: Commit Lint
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+jobs:
+  commit-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Validate commit messages
+        run: |
+          # Check each commit message in the PR
+          COMMITS=$(git rev-list ${{ github.event.pull_request.base.sha }}..${{ github.event.pull_request.head.sha }})
+          
+          echo "Validating commit messages..."
+          
+          for commit in $COMMITS; do
+            MESSAGE=$(git log --format=%B -n 1 $commit)
+            SUBJECT=$(echo "$MESSAGE" | head -n 1)
+            
+            # Check if subject matches pattern: type(scope): message or type: message
+            if ! echo "$SUBJECT" | grep -qE '^(feat|fix|docs|style|refactor|perf|test|chore|ci)(\(.+\))?:'; then
+              echo "❌ Invalid commit message format: '$SUBJECT'"
+              echo "Expected format: <type>(<scope>): <subject>"
+              echo "Valid types: feat, fix, docs, style, refactor, perf, test, chore, ci"
+              exit 1
+            fi
+            
+            # Check subject line length (should be <= 50 chars)
+            SUBJECT_LENGTH=${#SUBJECT}
+            if [ $SUBJECT_LENGTH -gt 50 ]; then
+              echo "❌ Commit subject too long ($SUBJECT_LENGTH chars, max 50): '$SUBJECT'"
+              exit 1
+            fi
+            
+            echo "✅ Valid: $SUBJECT"
+          done
+          
+          echo "All commit messages are valid!"
