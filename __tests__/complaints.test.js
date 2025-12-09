@@ -2,7 +2,6 @@ const request = require('supertest');
 const express = require('express');
 const mysql = require('mysql2/promise');
 
-// Mock database
 jest.mock('mysql2/promise');
 
 describe('Complaints API', () => {
@@ -10,23 +9,22 @@ describe('Complaints API', () => {
   let mockDb;
 
   beforeAll(() => {
-    // Create Express app instance
     app = express();
     app.use(express.json());
-    
-    // Setup mock database
+
     mockDb = {
-      execute: jest.fn(),
+      execute: jest.fn()
     };
     mysql.createConnection.mockResolvedValue(mockDb);
 
-    // Setup routes
+    // Helper
     function generateComplaintId() {
       const timestamp = Date.now();
       const random = Math.floor(Math.random() * 1000);
       return `COMP-${timestamp}-${random}`;
     }
 
+    // Routes
     app.get('/api/complaints', async (req, res) => {
       try {
         const { status, priority, category } = req.query;
@@ -47,7 +45,7 @@ describe('Complaints API', () => {
         }
 
         query += ' ORDER BY created_at DESC';
-        
+
         const [rows] = await mockDb.execute(query, params);
         res.json(rows);
       } catch (error) {
@@ -56,8 +54,16 @@ describe('Complaints API', () => {
     });
 
     app.post('/api/complaints', async (req, res) => {
-      const { title, description, category, customer_name, customer_email, customer_phone, priority } = req.body;
-      
+      const {
+        title,
+        description,
+        category,
+        customer_name,
+        customer_email,
+        customer_phone,
+        priority
+      } = req.body;
+
       if (!title || !description || !category || !customer_name) {
         return res.status(400).json({ error: 'Title, description, category, and customer name are required' });
       }
@@ -69,15 +75,15 @@ describe('Complaints API', () => {
           'INSERT INTO complaints (complaint_id, title, description, category, customer_name, customer_email, customer_phone, priority, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
           [complaintId, title, description, category, customer_name, customer_email || null, customer_phone || null, priority || 'medium', 'open']
         );
-        res.status(201).json({ 
+        res.status(201).json({
           id: result.insertId,
           complaint_id: complaintId,
-          title, 
+          title,
           description,
           category,
           status: 'open',
           priority: priority || 'medium',
-          message: 'Complaint registered successfully' 
+          message: 'Complaint registered successfully'
         });
       } catch (error) {
         res.status(500).json({ error: 'Failed to register complaint' });
@@ -121,6 +127,9 @@ describe('Complaints API', () => {
           updates.push('resolution_notes = ?');
           params.push(resolution_notes);
         }
+        if (status === 'resolved' || status === 'closed') {
+          updates.push('resolved_at = NOW()');
+        }
 
         if (updates.length === 0) {
           return res.status(400).json({ error: 'No fields to update' });
@@ -130,11 +139,11 @@ describe('Complaints API', () => {
         params.push(id, id);
 
         const [result] = await mockDb.execute(query, params);
-        
+
         if (result.affectedRows === 0) {
           return res.status(404).json({ error: 'Complaint not found' });
         }
-        
+
         res.json({ message: 'Complaint updated successfully' });
       } catch (error) {
         res.status(500).json({ error: 'Failed to update complaint' });
@@ -146,11 +155,11 @@ describe('Complaints API', () => {
 
       try {
         const [result] = await mockDb.execute('DELETE FROM complaints WHERE id = ? OR complaint_id = ?', [id, id]);
-        
+
         if (result.affectedRows === 0) {
           return res.status(404).json({ error: 'Complaint not found' });
         }
-        
+
         res.json({ message: 'Complaint deleted successfully' });
       } catch (error) {
         res.status(500).json({ error: 'Failed to delete complaint' });
@@ -169,8 +178,8 @@ describe('Complaints API', () => {
           id: 1,
           complaint_id: 'COMP-123456-001',
           title: 'Test Complaint',
-          status: 'open',
-        },
+          status: 'open'
+        }
       ];
 
       mockDb.execute.mockResolvedValue([mockComplaints]);
@@ -187,8 +196,8 @@ describe('Complaints API', () => {
         {
           id: 1,
           complaint_id: 'COMP-123456-001',
-          status: 'open',
-        },
+          status: 'open'
+        }
       ];
 
       mockDb.execute.mockResolvedValue([mockComplaints]);
@@ -217,7 +226,7 @@ describe('Complaints API', () => {
         title: 'New Complaint',
         description: 'Test description',
         category: 'Service',
-        customer_name: 'John Doe',
+        customer_name: 'John Doe'
       };
 
       mockDb.execute.mockResolvedValue([{ insertId: 1 }]);
@@ -232,10 +241,7 @@ describe('Complaints API', () => {
     });
 
     it('should validate required fields', async () => {
-      const complaintData = {
-        title: 'New Complaint',
-        // missing required fields
-      };
+      const complaintData = { title: 'New Complaint' };
 
       const response = await request(app)
         .post('/api/complaints')

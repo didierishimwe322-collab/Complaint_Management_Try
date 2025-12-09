@@ -22,7 +22,7 @@ let db;
 async function initDB() {
   try {
     db = await mysql.createConnection(dbConfig);
-    
+
     // Create complaints table
     await db.execute(`
       CREATE TABLE IF NOT EXISTS complaints (
@@ -43,7 +43,7 @@ async function initDB() {
         resolved_at TIMESTAMP NULL
       )
     `);
-    
+
     // Create categories table
     await db.execute(`
       CREATE TABLE IF NOT EXISTS categories (
@@ -55,7 +55,7 @@ async function initDB() {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
       )
     `);
-    
+
     console.log('Database connected and tables created');
   } catch (error) {
     console.error('Database connection failed:', error);
@@ -98,7 +98,7 @@ app.get('/api/complaints', async (req, res) => {
     }
 
     query += ' ORDER BY created_at DESC';
-    
+
     const [rows] = await db.execute(query, params);
     res.json(rows);
   } catch (error) {
@@ -110,17 +110,17 @@ app.get('/api/complaints', async (req, res) => {
 // GET single complaint by ID
 app.get('/api/complaints/:id', async (req, res) => {
   const { id } = req.params;
-  
+
   try {
     const [rows] = await db.execute(
       'SELECT * FROM complaints WHERE id = ? OR complaint_id = ?',
       [id, id]
     );
-    
+
     if (rows.length === 0) {
       return res.status(404).json({ error: 'Complaint not found' });
     }
-    
+
     res.json(rows[0]);
   } catch (error) {
     console.error('Error fetching complaint:', error);
@@ -131,7 +131,7 @@ app.get('/api/complaints/:id', async (req, res) => {
 // POST new complaint
 app.post('/api/complaints', async (req, res) => {
   const { title, description, category, customer_name, customer_email, customer_phone, priority } = req.body;
-  
+
   if (!title || !description || !category || !customer_name) {
     return res.status(400).json({ error: 'Title, description, category, and customer name are required' });
   }
@@ -143,15 +143,15 @@ app.post('/api/complaints', async (req, res) => {
       'INSERT INTO complaints (complaint_id, title, description, category, customer_name, customer_email, customer_phone, priority, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
       [complaintId, title, description, category, customer_name, customer_email || null, customer_phone || null, priority || 'medium', 'open']
     );
-    res.status(201).json({ 
+    res.status(201).json({
       id: result.insertId,
       complaint_id: complaintId,
-      title, 
+      title,
       description,
       category,
       status: 'open',
       priority: priority || 'medium',
-      message: 'Complaint registered successfully' 
+      message: 'Complaint registered successfully'
     });
   } catch (error) {
     console.error('Error creating complaint:', error);
@@ -209,11 +209,11 @@ app.put('/api/complaints/:id', async (req, res) => {
     params.push(id, id);
 
     const [result] = await db.execute(query, params);
-    
+
     if (result.affectedRows === 0) {
       return res.status(404).json({ error: 'Complaint not found' });
     }
-    
+
     res.json({ message: 'Complaint updated successfully' });
   } catch (error) {
     console.error('Error updating complaint:', error);
@@ -227,11 +227,11 @@ app.delete('/api/complaints/:id', async (req, res) => {
 
   try {
     const [result] = await db.execute('DELETE FROM complaints WHERE id = ? OR complaint_id = ?', [id, id]);
-    
+
     if (result.affectedRows === 0) {
       return res.status(404).json({ error: 'Complaint not found' });
     }
-    
+
     res.json({ message: 'Complaint deleted successfully' });
   } catch (error) {
     console.error('Error deleting complaint:', error);
@@ -274,14 +274,14 @@ app.get('/api/categories', async (req, res) => {
 // GET single category by ID
 app.get('/api/categories/:id', async (req, res) => {
   const { id } = req.params;
-  
+
   try {
     const [rows] = await db.execute('SELECT * FROM categories WHERE id = ?', [id]);
-    
+
     if (rows.length === 0) {
       return res.status(404).json({ error: 'Category not found' });
     }
-    
+
     res.json(rows[0]);
   } catch (error) {
     console.error('Error fetching category:', error);
@@ -292,7 +292,7 @@ app.get('/api/categories/:id', async (req, res) => {
 // POST new category
 app.post('/api/categories', async (req, res) => {
   const { name, description, color } = req.body;
-  
+
   if (!name) {
     return res.status(400).json({ error: 'Category name is required' });
   }
@@ -302,12 +302,12 @@ app.post('/api/categories', async (req, res) => {
       'INSERT INTO categories (name, description, color) VALUES (?, ?, ?)',
       [name, description || null, color || '#000000']
     );
-    res.status(201).json({ 
+    res.status(201).json({
       id: result.insertId,
       name,
       description,
       color: color || '#000000',
-      message: 'Category created successfully' 
+      message: 'Category created successfully'
     });
   } catch (error) {
     if (error.code === 'ER_DUP_ENTRY') {
@@ -349,11 +349,11 @@ app.put('/api/categories/:id', async (req, res) => {
     params.push(id);
 
     const [result] = await db.execute(query, params);
-    
+
     if (result.affectedRows === 0) {
       return res.status(404).json({ error: 'Category not found' });
     }
-    
+
     res.json({ message: 'Category updated successfully' });
   } catch (error) {
     if (error.code === 'ER_DUP_ENTRY') {
@@ -370,11 +370,11 @@ app.delete('/api/categories/:id', async (req, res) => {
 
   try {
     const [result] = await db.execute('DELETE FROM categories WHERE id = ?', [id]);
-    
+
     if (result.affectedRows === 0) {
       return res.status(404).json({ error: 'Category not found' });
     }
-    
+
     res.json({ message: 'Category deleted successfully' });
   } catch (error) {
     console.error('Error deleting category:', error);

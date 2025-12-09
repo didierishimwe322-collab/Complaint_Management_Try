@@ -13,11 +13,10 @@ describe('Categories API', () => {
     app.use(express.json());
 
     mockDb = {
-      execute: jest.fn(),
+      execute: jest.fn()
     };
     mysql.createConnection.mockResolvedValue(mockDb);
 
-    // Setup routes
     app.get('/api/categories', async (req, res) => {
       try {
         const [rows] = await mockDb.execute('SELECT * FROM categories ORDER BY created_at DESC');
@@ -29,14 +28,14 @@ describe('Categories API', () => {
 
     app.get('/api/categories/:id', async (req, res) => {
       const { id } = req.params;
-      
+
       try {
         const [rows] = await mockDb.execute('SELECT * FROM categories WHERE id = ?', [id]);
-        
+
         if (rows.length === 0) {
           return res.status(404).json({ error: 'Category not found' });
         }
-        
+
         res.json(rows[0]);
       } catch (error) {
         res.status(500).json({ error: 'Failed to fetch category' });
@@ -45,7 +44,7 @@ describe('Categories API', () => {
 
     app.post('/api/categories', async (req, res) => {
       const { name, description, color } = req.body;
-      
+
       if (!name) {
         return res.status(400).json({ error: 'Category name is required' });
       }
@@ -55,12 +54,12 @@ describe('Categories API', () => {
           'INSERT INTO categories (name, description, color) VALUES (?, ?, ?)',
           [name, description || null, color || '#000000']
         );
-        res.status(201).json({ 
+        res.status(201).json({
           id: result.insertId,
           name,
           description,
           color: color || '#000000',
-          message: 'Category created successfully' 
+          message: 'Category created successfully'
         });
       } catch (error) {
         if (error.code === 'ER_DUP_ENTRY') {
@@ -100,11 +99,11 @@ describe('Categories API', () => {
         params.push(id);
 
         const [result] = await mockDb.execute(query, params);
-        
+
         if (result.affectedRows === 0) {
           return res.status(404).json({ error: 'Category not found' });
         }
-        
+
         res.json({ message: 'Category updated successfully' });
       } catch (error) {
         if (error.code === 'ER_DUP_ENTRY') {
@@ -119,11 +118,11 @@ describe('Categories API', () => {
 
       try {
         const [result] = await mockDb.execute('DELETE FROM categories WHERE id = ?', [id]);
-        
+
         if (result.affectedRows === 0) {
           return res.status(404).json({ error: 'Category not found' });
         }
-        
+
         res.json({ message: 'Category deleted successfully' });
       } catch (error) {
         res.status(500).json({ error: 'Failed to delete category' });
@@ -141,8 +140,8 @@ describe('Categories API', () => {
         {
           id: 1,
           name: 'Product Quality',
-          color: '#FF0000',
-        },
+          color: '#FF0000'
+        }
       ];
 
       mockDb.execute.mockResolvedValue([mockCategories]);
@@ -159,7 +158,7 @@ describe('Categories API', () => {
       const categoryData = {
         name: 'New Category',
         description: 'Test category',
-        color: '#0000FF',
+        color: '#0000FF'
       };
 
       mockDb.execute.mockResolvedValue([{ insertId: 1 }]);
@@ -173,9 +172,7 @@ describe('Categories API', () => {
     });
 
     it('should handle duplicate category names', async () => {
-      const categoryData = {
-        name: 'Existing Category',
-      };
+      const categoryData = { name: 'Existing Category' };
 
       const error = new Error('Duplicate entry');
       error.code = 'ER_DUP_ENTRY';
