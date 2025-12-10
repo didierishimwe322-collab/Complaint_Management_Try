@@ -16,8 +16,10 @@ on:
         default: ''
 
 permissions:
-  contents: read
+  contents: write    # allow creating releases and pushing tags
   packages: write
+  id-token: write
+  pull-requests: write
 
 env:
   IMAGE_NAME: ghcr.io/${{ github.repository }}
@@ -30,6 +32,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: true   # ensure GITHUB_TOKEN is available for push/release operations
 
       - name: Set up QEMU and Buildx
         uses: docker/setup-buildx-action@v2
@@ -117,3 +120,13 @@ jobs:
             cat /tmp/port-forward.log || true
             exit 1
           fi
+
+      - name: Create GitHub release (softprops)
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: v2.0.0
+          name: Release v2.0.0
+          # prefer built-in GITHUB_TOKEN; if that fails provide GH_PAT in repo secrets
+          token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
