@@ -119,3 +119,129 @@ npm test
 ## License
 
 MIT
+
+# Complaint Management System — CI/CD Report Template
+
+Use this document as the base for your Phase 1–5 report. Fill in each section with screenshots, configuration snippets, and explanations. Aim for clarity and keep the final PDF <= 10 pages.
+
+1. Title page
+- Project: Complaint Management System
+- Author: <Your Name>
+- Course / Assignment: DevOps Assignment
+- Date: <date>
+- Repository URL: <git repo link>
+
+2. Abstract (max 200 words)
+- Short summary of the app, objectives, and what the pipeline achieves.
+
+3. Architecture Diagram (1 page)
+- Include a diagram showing:
+  - Developer -> Git (GitHub)
+  - CI (GitHub Actions) steps: lint -> test -> build -> push
+  - Registry (GHCR / Docker Hub)
+  - Runtime: Docker container, MySQL service (or Kubernetes)
+  - Monitoring: Prometheus / Grafana, Alerting channel (Slack/email)
+- Attach PNG/SVG exported from draw.io / Lucidchart.
+
+4. Tools and Versions (brief table)
+- GitHub Actions — (version)
+- Docker — (version)
+- Node.js — 18.x
+- MySQL — 8.x
+- Jest — 29.x
+- ESLint / Prettier — versions
+- Prometheus / Grafana — versions (if used)
+
+5. Phase-by-phase details
+- Phase 1 — Plan
+  - Requirements
+  - Chosen architecture and justification
+- Phase 2 — Code
+  - Repo layout (list important files)
+    - index.js — API
+    - package.json — scripts & deps
+    - Dockerfile — optimized multi-stage
+    - .github/workflows/ci-cd.yml — CI pipeline
+    - jest.config.js, tests/** — tests
+  - Key code snippets and reasoning
+- Phase 3 — Build
+  - CI job that builds Docker image (reference workflow file)
+  - Dockerfile explanation (multi-stage, minimal base, non-root user, healthcheck)
+  - Container size optimizations and final image size (measured)
+- Phase 4 — Test
+  - Unit tests + integration tests (tooling: Jest + Supertest)
+  - How tests run in CI (service containers for MySQL)
+  - Test coverage target and how to view reports
+  - Feedback mechanism (Slack webhook + email step)
+- Phase 5 — Release
+  - Versioning strategy (semantic versioning; use standard-version or git tag)
+  - Workflow for tag-based releases (build & push image, create GitHub Release)
+  - Registry used (GHCR or Docker Hub) and required secrets
+
+6. Resource calculation (example table)
+- Provide estimated resources for running one instance:
+  - Container image size: ~X MB
+  - CPU: 0.25 vCPU (baseline)
+  - Memory: 256 MB (baseline)
+  - Storage: DB volume 1 GB
+- Example scaling plan:
+  - 1 replica: handles ~50 RPS
+  - Add replicas when CPU > 70% or response latency increases
+
+7. Monitoring & Scaling
+- What to monitor:
+  - Application health (/health), response latency, error rate, DB connections, container CPU/memory
+- Prometheus metrics & Grafana dashboard screenshots
+- Alerting rules (example):
+  - Alert if instance_down for 2m -> send Slack
+  - Alert if CPU > 80% for 3m -> scale up
+- Autoscaling approach (Kubernetes HPA or Docker service scale)
+
+8. Screenshots / Evidence
+- CI run showing lint, tests, build, and notifications
+- Docker image in registry (image tags)
+- Application /health response
+- Grafana dashboard and alert notification
+
+9. How to reproduce locally (commands)
+- Clone and install:
+  - git clone <repo>
+  - cd CMSS
+  - npm install
+- Run locally:
+  - npm run dev
+- Run tests:
+  - npm test
+- Build Docker image:
+  - docker build -t complaint-management-system:latest .
+- Run with compose:
+  - docker compose up --build
+- Create release tag:
+  - npm run release (if using standard-version) OR
+  - git tag -a vX.Y.Z -m "release vX.Y.Z" && git push origin vX.Y.Z
+
+10. Checklist for submission
+- [ ] PDF report (<=10 pages) with architecture diagram, screenshots, resource table
+- [ ] Git repository link with all code, Dockerfile, CI/CD configs
+- [ ] Evidence of container pushed to registry (image name / tag)
+- [ ] Monitoring screenshots and alert config
+- [ ] README with reproduction steps
+
+11. Appendix — Important snippets
+- Example CI command to run tests:
+  - npm ci && npm test -- --coverage
+- Example Dockerfile notes:
+  - Use multi-stage
+  - Use alpine base image
+  - Remove dev deps from production layer
+- Example Git release flow:
+  - npm run release
+  - git push --follow-tags origin main
+
+Notes and tips
+- Keep screenshots labelled and compressed; include captions.
+- Put long logs or raw configs in the repository under /docs and refer to them from the report.
+- Be explicit about secrets you used (do NOT include actual secrets in the report).
+- For grading, highlight any improvements you made (e.g., tests, container size reduction, auto-scaling logic).
+
+End of template — fill sections and export as PDF for Moodle submission.
