@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: cmss-service
+  namespace: cmss
+  labels:
+    app: cmss
+spec:
+  selector:
+    app: cmss
+  ports:
+    - protocol: TCP
+      port: 3000
+      targetPort: http
+  type: LoadBalancer   # Use LoadBalancer in cloud; change to NodePort for on-prem

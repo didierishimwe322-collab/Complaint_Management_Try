@@ -1,0 +1,119 @@
+name: CD Deploy to Kubernetes
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      strategy:
+        description: 'deploy strategy (rolling or blue-green)'
+        required: false
+        default: 'rolling'
+      image_tag:
+        description: 'image tag to deploy (if omitted uses pipeline-generated tag)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  IMAGE_NAME: ghcr.io/${{ github.repository }}
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up QEMU and Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Determine tag
+        id: meta
+        run: |
+          if [ -n "${{ github.event.inputs.image_tag || '' }}" ]; then
+            TAG="${{ github.event.inputs.image_tag }}"
+          else
+            TAG="${GITHUB_SHA::8}"
+          fi
+          IMAGE="${IMAGE_NAME}:${TAG}"
+          echo "tag=${TAG}" >> $GITHUB_OUTPUT
+          echo "image=${IMAGE}" >> $GITHUB_OUTPUT
+          echo "strategy=${{ github.event.inputs.strategy || 'rolling' }}" >> $GITHUB_OUTPUT
+
+      - name: Login to GHCR (fallback docker hub support can be added)
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.image }}
+            ${{ env.IMAGE_NAME }}:latest
+
+      - name: Setup kubectl
+        run: |
+          echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 --decode > kubeconfig
+          sudo mv kubeconfig /tmp/kubeconfig
+          chmod 600 /tmp/kubeconfig
+          echo "KUBECONFIG=/tmp/kubeconfig" >> $GITHUB_ENV
+
+      - name: Deploy to cluster (rolling update)
+        if: steps.meta.outputs.strategy == 'rolling'
+        run: |
+          echo "Performing rolling update with image: ${{ steps.meta.outputs.image }}"
+          kubectl --kubeconfig=/tmp/kubeconfig -n cmss set image deployment/cmss-deployment cmss=${{ steps.meta.outputs.image }} --record
+          kubectl --kubeconfig=/tmp/kubeconfig -n cmss rollout status deployment/cmss-deployment --timeout=3m
+
+      - name: Deploy to cluster (blue-green)
+        if: steps.meta.outputs.strategy == 'blue-green'
+        run: |
+          TAG=${{ steps.meta.outputs.tag }}
+          NEW_NAME="cmss-deployment-green-${TAG}"
+          IMAGE="${{ steps.meta.outputs.image }}"
+
+          echo "Creating blue-green deployment: ${NEW_NAME}"
+          # Create a copy of deployment with different name & label
+          kubectl --kubeconfig=/tmp/kubeconfig -n cmss get deployment cmss-deployment -o yaml \
+            | sed "s/name: cmss-deployment/name: ${NEW_NAME}/" \
+            | sed "s/labels:\n *app: cmss/labels:\n  app: cmss-green-${TAG}/" \
+            | sed "s/name: cmss/name: cmss-green-${TAG}/" \
+            | kubectl --kubeconfig=/tmp/kubeconfig -n cmss apply -f -
+
+          # Set new image on green deployment
+          kubectl --kubeconfig=/tmp/kubeconfig -n cmss set image deployment/${NEW_NAME} cmss=${IMAGE} --record
+          kubectl --kubeconfig=/tmp/kubeconfig -n cmss rollout status deployment/${NEW_NAME} --timeout=3m
+
+          echo "Switch Service selector to green"
+          kubectl --kubeconfig=/tmp/kubeconfig -n cmss patch svc/cmss-service -p "{\"spec\":{\"selector\":{\"app\":\"cmss-green-${TAG}\"}}}"
+          echo "Waiting 30s for traffic to settle..."
+          sleep 30
+          echo "Delete old deployment"
+          kubectl --kubeconfig=/tmp/kubeconfig -n cmss delete deployment cmss-deployment --ignore-not-found
+
+      - name: Post-deploy smoke tests
+        run: |
+          # wait for service IP or use port-forward for simplicity in CI
+          kubectl --kubeconfig=/tmp/kubeconfig -n cmss rollout status deployment/cmss-deployment --timeout=30s || true
+          echo "Running simple health check..."
+          kubectl --kubeconfig=/tmp/kubeconfig -n cmss port-forward svc/cmss-service 3000:3000 &>/tmp/port-forward.log &
+          sleep 2
+          if curl -sSf http://localhost:3000/health; then
+            echo "health OK"
+          else
+            echo "health failed"
+            cat /tmp/port-forward.log || true
+            exit 1
+          fi

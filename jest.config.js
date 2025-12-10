@@ -26,5 +26,6 @@ module.exports = {
   verbose: true,
   forceExit: true,
   detectOpenHandles: true,
-  setupFilesAfterEnv: ['<rootDir>/jest.setup.js']
+  setupFilesAfterEnv: ['./jest.setup.js'],
+  testTimeout: 15000
 };

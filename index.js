@@ -17,57 +17,101 @@ const dbConfig = {
 };
 
 let db;
+let dbConnected = false;
 
-// Initialize database connection
+async function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Initialize database connection (replaced — adds retries and pool)
 async function initDB() {
-  try {
-    db = await mysql.createConnection(dbConfig);
+  const maxAttempts = Number(process.env.DB_CONNECT_ATTEMPTS || 8);
+  const baseDelayMs = 2000;
 
-    // Create complaints table
-    await db.execute(`
-      CREATE TABLE IF NOT EXISTS complaints (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        complaint_id VARCHAR(50) UNIQUE NOT NULL,
-        title VARCHAR(255) NOT NULL,
-        description TEXT NOT NULL,
-        category VARCHAR(100) NOT NULL,
-        status ENUM('open', 'in_progress', 'resolved', 'closed') DEFAULT 'open',
-        priority ENUM('low', 'medium', 'high', 'critical') DEFAULT 'medium',
-        assigned_to VARCHAR(100),
-        customer_name VARCHAR(255) NOT NULL,
-        customer_email VARCHAR(255),
-        customer_phone VARCHAR(20),
-        resolution_notes TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        resolved_at TIMESTAMP NULL
-      )
-    `);
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      db = mysql.createPool({
+        ...dbConfig,
+        waitForConnections: true,
+        connectionLimit: 10,
+        connectTimeout: 10000
+      });
 
-    // Create categories table
-    await db.execute(`
-      CREATE TABLE IF NOT EXISTS categories (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        name VARCHAR(100) NOT NULL UNIQUE,
-        description TEXT,
-        color VARCHAR(7),
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-      )
-    `);
+      // quick health check
+      await db.execute('SELECT 1');
 
-    console.log('Database connected and tables created');
-  } catch (error) {
-    console.error('Database connection failed:', error);
-    // Do not exit here — allow the HTTP server to start so container healthchecks succeed.
-    // Routes will return 500 when they attempt to use the DB.
-    db = {
-      // mimic mysql2/promise connection execute method that rejects
-      execute: async () => {
-        throw new Error('DB not connected');
+      // Create complaints table
+      await db.execute(`
+        CREATE TABLE IF NOT EXISTS complaints (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          complaint_id VARCHAR(50) UNIQUE NOT NULL,
+          title VARCHAR(255) NOT NULL,
+          description TEXT NOT NULL,
+          category VARCHAR(100) NOT NULL,
+          status ENUM('open', 'in_progress', 'resolved', 'closed') DEFAULT 'open',
+          priority ENUM('low', 'medium', 'high', 'critical') DEFAULT 'medium',
+          assigned_to VARCHAR(100),
+          customer_name VARCHAR(255) NOT NULL,
+          customer_email VARCHAR(255),
+          customer_phone VARCHAR(20),
+          resolution_notes TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          resolved_at TIMESTAMP NULL
+        )
+      `);
+
+      // Create categories table
+      await db.execute(`
+        CREATE TABLE IF NOT EXISTS categories (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          name VARCHAR(100) NOT NULL UNIQUE,
+          description TEXT,
+          color VARCHAR(7),
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        )
+      `);
+
+      // Create compliments table
+      await db.execute(`
+        CREATE TABLE IF NOT EXISTS compliments (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          compliment_id VARCHAR(50) UNIQUE NOT NULL,
+          message TEXT NOT NULL,
+          sender VARCHAR(255),
+          recipient VARCHAR(255),
+          category VARCHAR(100),
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+      `);
+
+      dbConnected = true;
+      console.log('Database connected and tables ensured');
+      return;
+    } catch (err) {
+      console.error(`DB connection attempt ${attempt}/${maxAttempts} failed:`, err.message || err);
+      try { if (db && db.end) await db.end(); } catch (_) {}
+      dbConnected = false;
+      if (attempt < maxAttempts) {
+        const wait = baseDelayMs * attempt;
+        console.log(`Waiting ${wait}ms before retrying...`);
+        await delay(wait);
+      } else {
+        console.error('All DB connection attempts failed. Server will continue but DB APIs will return 503.');
+        // fallback that rejects quickly for existing code paths
+        db = { execute: async () => { throw new Error('DB not connected'); } };
       }
-    };
+    }
   }
+}
+
+// Middleware to fail fast when DB is not connected
+function requireDB(req, res, next) {
+  if (!dbConnected) {
+    return res.status(503).json({ error: 'Database not connected' });
+  }
+  next();
 }
 
 // Helper function to generate complaint ID
@@ -75,6 +119,13 @@ function generateComplaintId() {
   const timestamp = Date.now();
   const random = Math.floor(Math.random() * 1000);
   return `COMP-${timestamp}-${random}`;
+}
+
+// Helper to generate compliment ID (new)
+function generateComplimentId() {
+  const timestamp = Date.now();
+  const random = Math.floor(Math.random() * 1000);
+  return `COMP-LT-${timestamp}-${random}`;
 }
 
 // Routes
@@ -389,9 +440,137 @@ app.delete('/api/categories/:id', async (req, res) => {
   }
 });
 
-// Health check endpoint
-app.get('/health', (req, res) => {
-  res.status(200).json({ status: 'OK', timestamp: new Date().toISOString() });
+// ============ COMPLIMENTS CRUD ============
+
+// GET all compliments with optional filters (new)
+app.get('/api/compliments', async (req, res) => {
+  try {
+    const { category, recipient } = req.query;
+    let query = 'SELECT * FROM compliments WHERE 1=1';
+    const params = [];
+
+    if (category) {
+      query += ' AND category = ?';
+      params.push(category);
+    }
+    if (recipient) {
+      query += ' AND recipient = ?';
+      params.push(recipient);
+    }
+
+    query += ' ORDER BY created_at DESC';
+    const [rows] = await db.execute(query, params);
+    res.json(rows);
+  } catch (error) {
+    console.error('Error fetching compliments:', error);
+    res.status(500).json({ error: 'Failed to fetch compliments' });
+  }
+});
+
+// GET single compliment by id or compliment_id (new)
+app.get('/api/compliments/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const [rows] = await db.execute(
+      'SELECT * FROM compliments WHERE id = ? OR compliment_id = ?',
+      [id, id]
+    );
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Compliment not found' });
+    }
+    res.json(rows[0]);
+  } catch (error) {
+    console.error('Error fetching compliment:', error);
+    res.status(500).json({ error: 'Failed to fetch compliment' });
+  }
+});
+
+// POST create compliment (new)
+app.post('/api/compliments', async (req, res) => {
+  const { message, sender, recipient, category } = req.body;
+  if (!message || !recipient) {
+    return res.status(400).json({ error: 'Message and recipient are required' });
+  }
+  const complimentId = generateComplimentId();
+  try {
+    const [result] = await db.execute(
+      'INSERT INTO compliments (compliment_id, message, sender, recipient, category) VALUES (?, ?, ?, ?, ?)',
+      [complimentId, message, sender || null, recipient, category || null]
+    );
+    res.status(201).json({
+      id: result.insertId,
+      compliment_id: complimentId,
+      message,
+      sender,
+      recipient,
+      category,
+      message_text: 'Compliment created successfully'
+    });
+  } catch (error) {
+    console.error('Error creating compliment:', error);
+    res.status(500).json({ error: 'Failed to create compliment' });
+  }
+});
+
+// PUT update compliment (new)
+app.put('/api/compliments/:id', async (req, res) => {
+  const { id } = req.params;
+  const { message, sender, recipient, category } = req.body;
+  try {
+    const updates = [];
+    const params = [];
+
+    if (message !== undefined) { updates.push('message = ?'); params.push(message); }
+    if (sender !== undefined) { updates.push('sender = ?'); params.push(sender); }
+    if (recipient !== undefined) { updates.push('recipient = ?'); params.push(recipient); }
+    if (category !== undefined) { updates.push('category = ?'); params.push(category); }
+
+    if (updates.length === 0) {
+      return res.status(400).json({ error: 'No fields to update' });
+    }
+
+    const query = `UPDATE compliments SET ${updates.join(', ')} WHERE id = ? OR compliment_id = ?`;
+    params.push(id, id);
+
+    const [result] = await db.execute(query, params);
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: 'Compliment not found' });
+    }
+    res.json({ message: 'Compliment updated successfully' });
+  } catch (error) {
+    console.error('Error updating compliment:', error);
+    res.status(500).json({ error: 'Failed to update compliment' });
+  }
+});
+
+// DELETE compliment (new)
+app.delete('/api/compliments/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    const [result] = await db.execute('DELETE FROM compliments WHERE id = ? OR compliment_id = ?', [id, id]);
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: 'Compliment not found' });
+    }
+    res.json({ message: 'Compliment deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting compliment:', error);
+    res.status(500).json({ error: 'Failed to delete compliment' });
+  }
+});
+
+// Health check endpoint (updated to include DB status)
+app.get('/health', async (req, res) => {
+  let dbOk = false;
+  try {
+    if (db && db.execute) {
+      await db.execute('SELECT 1');
+      dbOk = true;
+    }
+  } catch (e) {
+    dbOk = false;
+  }
+  const status = dbOk ? 200 : 503;
+  res.status(status).json({ status: dbOk ? 'OK' : 'DB_UNAVAILABLE', dbConnected: dbOk, timestamp: new Date().toISOString() });
 });
 
 const PORT = process.env.PORT || 3000;

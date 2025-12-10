@@ -1,0 +1,118 @@
+name: CD - Deploy to Kubernetes
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      strategy:
+        description: 'Deployment strategy (rolling|blue-green)'
+        required: false
+        default: 'rolling'
+      image_tag:
+        description: 'Image tag to deploy (if empty uses github.sha)'
+        required: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    env:
+      IMAGE_NAME: ghcr.io/${{ github.repository }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU (for multi-arch, optional)
+        uses: docker/setup-qemu-action@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Determine image tag
+        id: meta
+        run: |
+          TAG="${{ github.event.inputs.image_tag || github.sha }}"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Login to GHCR (or Docker Hub via secrets)
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v4
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.tag }}
+            ${{ env.IMAGE_NAME }}:latest
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: '1.30.0'
+
+      - name: Configure kubeconfig
+        run: |
+          echo "${{ secrets.KUBE_CONFIG_DATA }}" | base64 --decode > kubeconfig
+          export KUBECONFIG=$PWD/kubeconfig
+          kubectl config view
+        env:
+          KUBECONFIG: ${{ github.workspace }}/kubeconfig
+
+      - name: Apply namespace
+        run: |
+          kubectl apply -f k8s/namespace.yaml
+
+      - name: Deploy (strategy: rolling)
+        if: ${{ github.event.inputs.strategy == 'rolling' || github.event.inputs.strategy == '' }}
+        run: |
+          sed -e "s|ghcr.io/<OWNER>/<REPO>:latest|${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.tag }}|g" k8s/deployment.yaml | kubectl apply -f -
+          kubectl apply -f k8s/service.yaml
+          kubectl apply -f k8s/hpa.yaml
+          kubectl -n cmss rollout status deployment/cmss-deployment --timeout=120s
+
+      - name: Deploy (strategy: blue-green)
+        if: ${{ github.event.inputs.strategy == 'blue-green' }}
+        run: |
+          # Determine active color
+          export KUBECONFIG=$PWD/kubeconfig
+          ACTIVE=$(kubectl -n cmss get svc cmss-service -o jsonpath='{.spec.selector.color}' 2>/dev/null || echo "none")
+          if [ "$ACTIVE" = "none" ]; then
+            ACTIVE="blue"
+          fi
+          if [ "$ACTIVE" = "blue" ]; then
+            NEW="green"
+          else
+            NEW="blue"
+          fi
+          echo "Active=$ACTIVE New=$NEW"
+
+          # Apply new deployment with new color
+          sed -e "s|color: blue|color: ${NEW}|g" k8s/deployment.yaml > /tmp/deploy-${NEW}.yaml
+          sed -e "s|color: blue|color: ${NEW}|g" k8s/deployment.yaml | sed -e "s|cmss-deployment|cmss-deployment-${NEW}|g" | sed -e "s|ghcr.io/<OWNER>/<REPO>:latest|${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.tag }}|g" | kubectl apply -f -
+
+          # Wait for new deployment rollout
+          kubectl -n cmss rollout status deployment/cmss-deployment-${NEW} --timeout=120s
+
+          # Switch service to new color
+          kubectl -n cmss patch svc cmss-service --type='json' -p="[{\"op\":\"replace\",\"path\":\"/spec/selector/color\",\"value\":\"${NEW}\"}]"
+
+          # Optionally scale down old deployment
+          kubectl -n cmss scale deployment cmss-deployment-${ACTIVE} --replicas=0 || true
+
+      - name: Post-deploy check
+        run: |
+          kubectl -n cmss get pods -l app=cmss -o wide
+          kubectl -n cmss get svc cmss-service -o yaml
+
+      - name: Cleanup kubeconfig
+        run: rm -f kubeconfig

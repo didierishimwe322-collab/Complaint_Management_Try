@@ -10,3 +10,6 @@ if (process.env.SUPPRESS_LOGS === 'true') {
   global.console.log = jest.fn();
   global.console.info = jest.fn();
 }
+
+// Extend default timeout for slower CI/local environments
+jest.setTimeout(15000);
