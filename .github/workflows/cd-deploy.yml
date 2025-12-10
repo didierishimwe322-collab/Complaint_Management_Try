@@ -121,12 +121,26 @@ jobs:
             exit 1
           fi
 
-      - name: Create GitHub release (softprops)
+      - name: Validate GH PAT (must be a PAT with repo scope)
+        run: |
+          if [ -z "${{ secrets.GH_PAT }}" ]; then
+            echo "ERROR: repository secret GH_PAT is not set. Create a PAT with 'repo' scope and add it to Settings → Secrets → Actions as GH_PAT."
+            exit 1
+          fi
+          echo "Checking PAT access to repo: ${{ github.repository }} ..."
+          status_code=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: token ${{ secrets.GH_PAT }}" "https://api.github.com/repos/${{ github.repository }}")
+          if [ "$status_code" != "200" ]; then
+            echo "ERROR: GH_PAT cannot access the repository (HTTP $status_code)."
+            echo " - Ensure GH_PAT is a personal access token with 'repo' scope and is added to repository secrets as GH_PAT."
+            echo " - If this workflow runs from a fork, secrets are not available; run it from the main repository."
+            exit 1
+          fi
+          echo "GH_PAT looks valid."
+
+      - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: v2.0.0
-          name: Release v2.0.0
-          # prefer built-in GITHUB_TOKEN; if that fails provide GH_PAT in repo secrets
-          token: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+          tag_name: ${{ github.ref_name || 'v' + steps.meta.outputs.tag }}
+          name: Release ${{ github.ref_name || steps.meta.outputs.tag }}
         env:
-          GITHUB_TOKEN: ${{ secrets.GH_PAT || secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GH_PAT }}   # use the secret you just created
